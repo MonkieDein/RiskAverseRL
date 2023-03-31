@@ -3,6 +3,20 @@ import numpy as np
 import pandas as pd
 
 '''
+npfy(var1) -> pass in a variable X and return a numpy array of variable X.
+'''
+
+
+def npfy(var1):
+    if type(var1) is not np.ndarray:
+        if type(var1) is not list:
+            return np.array([var1])
+        else:
+            return np.array(var1)
+    return var1
+
+
+'''
 preProcess(d) -> pd.DataFrame
 Takes in a distribution dataframe (d):
 1. remove probabilities p <= 0.
@@ -58,7 +72,7 @@ returns the conditional distribution dataFrame.
 '''
 
 
-def condD(X: np.ndarray, p_cond: np.ndarray, pr: float, **kwargs):
+def condD(X: np.ndarray, p_cond: np.ndarray, pr: float, **kwargs) -> pd.DataFrame:
     d = distribution(X, p_cond)
     d.rename(columns={'p': 'p_cond', 'cdf': 'cdf_cond', 'XTP': 'XTP_cond'})
     d['p'] = d.p_cond * pr
@@ -78,3 +92,128 @@ returns the preprocess (sorted and precompute cdf and XTP) distribution datafram
 def joinD(d_conds: list[pd.DataFrame]) -> pd.DataFrame:
     d = pd.concat(d_conds)
     return preProcess(d)
+
+
+'''
+is_sorted(a) -> Boolean
+Takes in an array (a): identify if the array is sorted. 
+'''
+def is_sorted(a: np.ndarray): return np.all(np.diff(a) >= 0)
+
+
+'''
+searchVaR(d,lam) -> float: Search over cdf.
+Takes in a distribution (d) and risk level (lam).
+Return the (lam)-th quantile of the distribution (d).
+'''
+
+
+def searchVaR(d: pd.DataFrame, lam: float) -> float:
+    i = min(int(np.searchsorted(d.cdf, lam)), len(d.cdf.values)-1)
+    return d.X[i]
+
+
+'''
+iterVaRs(d,Lam) -> float:  Iterate over sorted element of the distribution.
+Takes in a distribution (d) and an array of risk level (Lam).
+Return the (Lam)-th quantile of the distribution (d).
+'''
+
+
+def iterVaRs(d: pd.DataFrame, Lam: np.ndarray) -> np.ndarray:
+    M, N = len(Lam), len(d.index)
+
+    # initialize answer array
+    output = np.empty(M)
+
+    j = np.searchsorted(Lam, 0, side='right')
+    output[:j] = d.X[0]
+
+    for i in range(N):
+        while (j < M) and (Lam[j] <= d.cdf[i]):
+            output[j] = d.X[i]
+            j += 1
+
+    output[j:] = d.X[N-1]
+
+    return output
+
+
+'''
+VaR(d,Lam,mode=1) -> np.ndarray: General function that takes mode as input.
+Takes in a distribution (d) and an array of risk level (Lam).
+mode = 0 # iterative methods good for large Lam array
+mode != 0 # search methods good for small Lam array
+Return the (Lam)-th quantile of the distribution (d).
+'''
+
+
+def VaR(d: pd.DataFrame, Lam: np.ndarray, mode: int = 1) -> np.ndarray:
+    Lam = npfy(Lam)
+    if mode == 0:  # iterative methods good for large Lam array
+        assert is_sorted(Lam), "Lambda array must be sorted"
+        return iterVaRs(d, Lam)
+    # search methods good for small Lam array
+    return np.array([searchVaR(d, lam) for lam in Lam.tolist()])
+
+
+'''
+searchAVaR(d,lam) -> float: Search over cdf.
+Takes in a distribution (d) and risk level (lam).
+Return the (lam)-CVaR of the distribution (d).
+'''
+
+
+def searchAVaR(d: pd.DataFrame, lam: float) -> float:
+    i = min(int(np.searchsorted(d.cdf, lam)), len(d.cdf.values)-1)
+    return ((d.XTP[i] + d.X[i] * (lam - d.cdf[i])) / lam) if i > 0 else d.X[i]
+
+
+'''
+iterAVaRs(d,Lam) -> np.ndarray: Iterate over sorted element of the distribution.
+Takes in a distribution (d) and an array of risk level (Lam).
+Return an array of (Lam)-CVaR of the distribution (d).
+'''
+
+
+def iterAVaRs(d: pd.DataFrame, Lam: np.ndarray) -> np.ndarray:
+    M, N = len(Lam), len(d.index)
+
+    # initialize answer array
+    output = np.empty(M)
+
+    j = np.searchsorted(Lam, 0, side='right')
+    output[:j] = d.X[0]
+
+    for i in range(N):
+        while (j < M) and (Lam[j] <= d.cdf[i]):
+            output[j] = (d.XTP[i] + d.X[i]*(Lam[j] - d.cdf[i]))/Lam[j]
+            j += 1
+
+    output[j:] = d.XTP[N-1]
+
+    return output
+
+
+'''
+AVaRs(d,Lam,mode=1) -> np.ndarray: General function that takes mode as input.
+Takes in a distribution (d) and an array of risk level (Lam).
+mode = 0 # iterative methods good for large Lam array
+mode != 0 # search methods good for small Lam array
+Return an array of (Lam)-CVaR of the distribution (d).
+'''
+
+
+def AVaR(d: pd.DataFrame, Lam: np.ndarray, mode: int = 1) -> np.ndarray:
+    Lam = npfy(Lam)
+
+    # iterative methods good for large Lam array
+    if mode == 0:
+        assert is_sorted(Lam), "Lambda array must be sorted"
+        return iterAVaRs(d, Lam)
+    # search methods good for small Lam array
+    return np.array([searchAVaR(d, lam) for lam in Lam.tolist()])
+
+
+def CVaR(d: pd.DataFrame, Lam: np.ndarray, mode: int = 1) -> np.ndarray:
+    return AVaR(d, Lam, mode=mode)
