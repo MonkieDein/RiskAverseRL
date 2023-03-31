@@ -1,6 +1,3 @@
-
-# from collections import namedtuple
-
 import numpy as np
 from scipy.optimize import minimize_scalar
 from scipy.special import logsumexp as LSE
@@ -102,11 +99,9 @@ mode != 0 # search methods good for small Lam array
 '''
 
 
-def AVaR(X: np.ndarray, Lam: np.ndarray, prob: np.ndarray = np.empty(0), mode=1):
+def CVaR(X: np.ndarray, Lam: np.ndarray, prob: np.ndarray = np.empty(0), mode=1):
     X, prob = check_size(X, prob)
     d = ddf.distribution(X, prob)
-    return ddf.AVaR(d, Lam, mode=mode)
+    return ddf.CVaR(d, Lam, mode=mode)
 
 
-def CVaR(X: np.ndarray, Lam: np.ndarray, prob: np.ndarray = np.empty(0), mode=1):
-    return AVaR(X, Lam, prob, mode=mode)

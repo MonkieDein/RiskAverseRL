@@ -17,9 +17,7 @@ p = np.array([1, 9, 2, 9, 5, 2, 45, 27])/100
 d = distribution(X, p)
 
 Lambda = np.linspace(0, 1, 101)
-cvar, var = AVaR(d, Lambda), VaR(d, Lambda)
-
-RiskTransition = namedtuple("RiskTransition", ["states", "riskindexes"])
+cvar, var = CVaR(d, Lambda), VaR(d, Lambda)
 
 
 def VaR_iter(d, Lam, mdp_Psa, Average=True, optTran=True):
@@ -40,7 +38,7 @@ def VaR_iter(d, Lam, mdp_Psa, Average=True, optTran=True):
             if not optTran:
                 riskindexes[d.s[i]] = np.searchsorted(
                     Lam, (condRisks[d.s[i]] + (Lam[j] - (d.cdf[i-1] if i > 0 else 0))/mdp_Psa[d.s[i]]))
-            risktrans[j] = RiskTransition(S, riskindexes.copy())
+            risktrans[j] = riskindexes.copy()
             j += 1
         condRisks[d.s[i]] = d.cdf_cond[i]
         riskindexes[d.s[i]] = min(
@@ -48,7 +46,7 @@ def VaR_iter(d, Lam, mdp_Psa, Average=True, optTran=True):
 
     if (j < M):
         output[j:] = d.X[N-1] if Average else d.XTP[N-1]
-        risktrans += [RiskTransition(S, riskindexes.copy())] * (M-j)
+        risktrans +=  riskindexes.copy() * (M-j)
 
     return output, risktrans
 

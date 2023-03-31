@@ -17,6 +17,12 @@ def npfy(var1):
 
 
 '''
+is_sorted(a) -> Boolean
+Takes in an array (a): identify if the array is sorted. 
+'''
+def is_sorted(a: np.ndarray): return np.all(np.diff(a) >= 0)
+
+'''
 preProcess(d) -> pd.DataFrame
 Takes in a distribution dataframe (d):
 1. remove probabilities p <= 0.
@@ -59,6 +65,31 @@ def distribution(X: np.ndarray, p: np.ndarray) -> pd.DataFrame:
     d = d.groupby('X').agg({'p': sum}).reset_index()
     return preProcess(d)
 
+'''
+VaR2D(X,cdf) -> pd.DataFrame
+Takes in an array of sorted X values its respective cdf:
+1. Calcaulate the pmf from cdf :np.diff(cdf, prepend=0).
+returns the distribution dataframe (d).
+'''
+def VaR2D(X: np.ndarray, cdf: np.ndarray) -> pd.DataFrame:
+    assert is_sorted(X), "values of var must be sorted"
+    d = distribution(np.diff(cdf, prepend=0), X)
+    return d
+
+'''
+CVaR2D(X,cdf) -> pd.DataFrame
+Takes in an array of sorted CVaR values its respective cdf:
+1. Calcaulate the pmf from cdf :np.diff(cdf, prepend=0).
+1. Calcaulate the X from cvar and cdf : np.diff(cdf * cvar, prepend=0)/p.
+returns the distribution dataframe (d).
+'''
+def CVaR2D(cvar: np.ndarray, cdf: np.ndarray, decimal: int= 10) -> pd.DataFrame:
+    assert is_sorted(cvar), "values of cvar must be sorted"
+    p = np.diff(cdf, prepend=0)
+    X = np.round(np.diff(cdf * cvar, prepend=0) / p, decimal)
+    d = distribution(X, p)
+    return d
+
 
 '''
 condD(X,p_cond,pr,**kwargs) -> pd.DataFrame
@@ -95,22 +126,15 @@ def joinD(d_conds: list[pd.DataFrame]) -> pd.DataFrame:
 
 
 '''
-is_sorted(a) -> Boolean
-Takes in an array (a): identify if the array is sorted. 
-'''
-def is_sorted(a: np.ndarray): return np.all(np.diff(a) >= 0)
-
-
-'''
 searchVaR(d,lam) -> float: Search over cdf.
 Takes in a distribution (d) and risk level (lam).
 Return the (lam)-th quantile of the distribution (d).
 '''
 
 
-def searchVaR(d: pd.DataFrame, lam: float) -> float:
-    i = min(int(np.searchsorted(d.cdf, lam)), len(d.cdf.values)-1)
-    return d.X[i]
+def searchVaR(d: pd.DataFrame, lam: np.ndarray) -> np.ndarray:
+    i = np.minimum(np.searchsorted(d.cdf, lam), len(d.cdf.values)-1)
+    return d.X.values[i]
 
 
 '''
@@ -154,7 +178,7 @@ def VaR(d: pd.DataFrame, Lam: np.ndarray, mode: int = 1) -> np.ndarray:
         assert is_sorted(Lam), "Lambda array must be sorted"
         return iterVaRs(d, Lam)
     # search methods good for small Lam array
-    return np.array([searchVaR(d, lam) for lam in Lam.tolist()])
+    return searchVaR(d, Lam)
 
 
 '''
@@ -164,9 +188,10 @@ Return the (lam)-CVaR of the distribution (d).
 '''
 
 
-def searchAVaR(d: pd.DataFrame, lam: float) -> float:
-    i = min(int(np.searchsorted(d.cdf, lam)), len(d.cdf.values)-1)
-    return ((d.XTP[i] + d.X[i] * (lam - d.cdf[i])) / lam) if i > 0 else d.X[i]
+def searchCVaR(d: pd.DataFrame, lam: np.ndarray) -> np.ndarray:
+    i = np.minimum(np.searchsorted(d.cdf, lam), len(d.cdf.values)-1)
+    return np.divide((d.XTP.values[i] + d.X.values[i] * (lam - d.cdf.values[i])), lam,
+                      out=np.full_like(lam,d.X.values[0]), where=lam!=0) 
 
 
 '''
@@ -176,7 +201,7 @@ Return an array of (Lam)-CVaR of the distribution (d).
 '''
 
 
-def iterAVaRs(d: pd.DataFrame, Lam: np.ndarray) -> np.ndarray:
+def iterCVaRs(d: pd.DataFrame, Lam: np.ndarray) -> np.ndarray:
     M, N = len(Lam), len(d.index)
 
     # initialize answer array
@@ -204,16 +229,12 @@ Return an array of (Lam)-CVaR of the distribution (d).
 '''
 
 
-def AVaR(d: pd.DataFrame, Lam: np.ndarray, mode: int = 1) -> np.ndarray:
+def CVaR(d: pd.DataFrame, Lam: np.ndarray, mode: int = 1) -> np.ndarray:
     Lam = npfy(Lam)
 
     # iterative methods good for large Lam array
     if mode == 0:
         assert is_sorted(Lam), "Lambda array must be sorted"
-        return iterAVaRs(d, Lam)
+        return iterCVaRs(d, Lam)
     # search methods good for small Lam array
-    return np.array([searchAVaR(d, lam) for lam in Lam.tolist()])
-
-
-def CVaR(d: pd.DataFrame, Lam: np.ndarray, mode: int = 1) -> np.ndarray:
-    return AVaR(d, Lam, mode=mode)
+    return searchCVaR(d, Lam)
