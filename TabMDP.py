@@ -1,5 +1,6 @@
 import warnings
 from collections import namedtuple
+from math import ceil
 
 import numpy as np
 import pandas as pd
@@ -9,13 +10,22 @@ import riskMeasure as rm
 
 Q_sa = namedtuple('Qsa', ['val', 'risk_trans'])  # risk_trans[L,S]
 V_s = namedtuple('Vs', ['val', 'action', 'risk_trans'])
-obj = namedtuple('obj', ['rho', 'Lam', 'l'])
 
 
-class TabMDP:
+class obj:
+    def __init__(self, rho, Lam, T: int = -1, delta: float = 0.0):
+        self.rho = rho  # represent the risk measure used
+        self.T = T  # T = -1 refers to infinite horizon
+        self.Lam = Lam  # risk levels, (consider numpy or list)
+        self.delta = delta  # EVaR and ERM delta epsilon parameter
+        self.l = len(Lam)  # number of risk levels
 
-    def __init__(self, S, A: list[int], R: np.ndarray, P: np.ndarray, discount: float):
+
+class rhoMDP:
+
+    def __init__(self, S, A: list[int], R: np.ndarray, P: np.ndarray, discount: float, s0: np.ndarray):
         self.S = S
+        self.s0 = s0
         self.lSl = len(S)
         self.A = A
         self.lAl = len(A)
@@ -23,17 +33,21 @@ class TabMDP:
         self.P = P
         self.gamma = discount
 
-    def value_iteration(self, obj):
-        nested = set(['ERM', 'nERM', 'nVaR', 'nCVaR', 'nEVaR', 'E', 'mean'])
-        quantile = set(["CVaR", "VaR"])
+    def value_iteration(self, obj, vTerm=0, piTerm=0):
+        nested = {'ERM', 'nERM', 'nVaR', 'nCVaR', 'nEVaR', 'E', 'mean'}
+        quantile = {"CVaR", "VaR"}
+        maxErm = {"EVaR"}
+        assert obj.rho not in (nested | quantile | maxErm), obj.rho + \
+            "-MDP not supported. Use :"+str(nested | quantile | maxErm)
         if obj.rho in nested:
-            return self.finiteVi(obj, param=None)
+            if obj.T == -1:
+                return [self.infiniteVi(obj, param=param) for param in obj.Lam]
+            else:
+                return [self.finiteVi(obj, param=param, vTerm=vTerm, piTerm=piTerm) for param in obj.Lam]
         elif obj.rho in quantile:
             return self.quantileVi(obj)
-        else:
-            assert 0, obj.rho + "-MDP not supported. Use :" + \
-                str(nested | quantile)
-            return self.finiteVi(obj, param=None)
+        else:  # obj.rho in maxErm: # self.evarVi( obj )
+            return self.evarVi(obj)
 
     def qval(self, obj, s, t, v, param):
         if obj.rho == 'ERM':
@@ -49,18 +63,74 @@ class TabMDP:
             return [rm.EVaR(self.R[s, a, :] + self.gamma * v[t+1, :], param, self.P[s, a, :]) for a in self.A]
         return [rm.E(self.R[s, a, :] + self.gamma * v[t+1, :], self.P[s, a, :]) for a in self.A]
 
-    def finiteVi(self, obj, param=None):
+    def finiteVi(self, obj, param=None, vTerm=0, piTerm=0):
         v = np.empty((obj.T+1, self.lSl))
-        pi = np.empty((obj.T, self.lSl))
-        v[obj.T, :] = 0
-
+        pi = np.empty((obj.T+1, self.lSl))
+        v[obj.T, :] = vTerm
+        pi[obj.T, :] = piTerm
         for t in reversed(range(obj.T)):
-            # initialize vectors
             for s in self.S:
                 Qs = self.qval(obj, s, t, v, param)
                 v[t, s] = max(Qs)
                 pi[t, s] = np.argmax(Qs)
         return V_s(v, pi, None)
+
+    def infiniteVi(self, obj, param=None, eps=1e-14, maxiter=1000):
+        if obj.rho == "ERM":
+            warnings.warn("ERM degrade to nested-ERM in infinite horizon")
+        v = np.ones((self.lSl, 2))
+        pi = np.empty((self.lSl))
+        t = 0  # index of t=1 means next, t=0 means current
+        v[t, :] = 0
+        i = 0
+        while (np.abs(v[t+1, :] - v[t, :])).max() > eps:
+            v[t+1, :] = v[t, :]
+            for s in self.S:
+                Qs = self.qval(obj, s, t, v, param)
+                v[t, s] = max(Qs)
+                pi[s] = np.argmax(Qs)
+            i += 1
+            if i > maxiter:
+                warnings.warn("Maximum number of iterations reached")
+                break
+        return V_s(v[0, :], pi, None)
+
+    def genAlpha(self, obj, delta):
+        lam = min([l for l in obj.Lam if l > 0])
+        DeltaR = np.ptp(self.R)
+        Alpha = []
+        alp = 8*delta/(DeltaR**2)
+        while alp < (-np.log(lam)/delta):
+            Alpha.append(alp)
+            alp = alp * np.log(lam)/(alp*delta+np.log(lam))
+        Alpha.append(alp)
+        return Alpha
+
+    def esTerm(self, delta, minA):
+        DeltaR = np.ptp(self.R)
+        return ceil(np.log(8*delta/((minA)*DeltaR**2))/(2*np.log(delta)))
+
+    def evarVi(self, obj):
+        assert obj.delta > 0, "please set delta > 0"
+        if obj.T == -1:  # If infinite horizon
+            # Solve risk neutral Nominal-MDP
+            objE = obj("E", -1, [1.0], 1, 0.0)
+            vTerm = self.infiniteVi(objE)
+            # Get necessary Alpha parameters
+            Alpha = self.genAlpha(obj, obj.delta/2)
+            objERM = obj("ERM", self.esTerm(obj.delta/2, min(Alpha)),
+                         Alpha, len(Alpha), 0.0)
+
+        else:  # If finite horizon
+            assert obj.T > 0, "please set objective horizon > 0"
+            vTerm = V_s(0.0, None, None)
+            Alpha = self.genAlpha(obj, obj.delta)
+            objERM = obj("ERM", obj.T, Alpha, len(Alpha), 0.0)
+        ERM_ret = self.value_iteration(objERM, vTerm=vTerm.val)
+        ERMs = np.array([rm.ERM(v.val[0, :], Alpha[i], self.s0)
+                        for i, v in enumerate(ERM_ret)])
+        npAlp = np.array(Alpha)
+        return [ERM_ret[np.argmax(ERMs + np.log(l)/npAlp)] for l in obj.Lam]
 
     def getRiskTrans(self, obj, d_conds, var):
         N = obj.l-1
