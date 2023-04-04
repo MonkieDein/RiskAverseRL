@@ -2,25 +2,8 @@
 import numpy as np
 import pandas as pd
 
-'''
-npfy(var1) -> pass in a variable X and return a numpy array of variable X.
-'''
-
-
-def npfy(var1):
-    if type(var1) is not np.ndarray:
-        if type(var1) is not list:
-            return np.array([var1])
-        else:
-            return np.array(var1)
-    return var1
-
-
-'''
-is_sorted(a) -> Boolean
-Takes in an array (a): identify if the array is sorted. 
-'''
-def is_sorted(a: np.ndarray): return np.all(np.diff(a) >= 0)
+import base as bs
+import riskMeasure as rm
 
 '''
 preProcess(d) -> pd.DataFrame
@@ -65,16 +48,20 @@ def distribution(X: np.ndarray, p: np.ndarray) -> pd.DataFrame:
     d = d.groupby('X').agg({'p': sum}).reset_index()
     return preProcess(d)
 
+
 '''
 VaR2D(X,cdf) -> pd.DataFrame
 Takes in an array of sorted X values its respective cdf:
 1. Calcaulate the pmf from cdf :np.diff(cdf, prepend=0).
 returns the distribution dataframe (d).
 '''
+
+
 def VaR2D(X: np.ndarray, cdf: np.ndarray) -> pd.DataFrame:
-    assert is_sorted(X), "values of var must be sorted"
+    assert bs.is_sorted(X), "values of var must be sorted"
     d = distribution(np.diff(cdf, prepend=0), X)
     return d
+
 
 '''
 CVaR2D(X,cdf) -> pd.DataFrame
@@ -83,8 +70,10 @@ Takes in an array of sorted CVaR values its respective cdf:
 1. Calcaulate the X from cvar and cdf : np.diff(cdf * cvar, prepend=0)/p.
 returns the distribution dataframe (d).
 '''
-def CVaR2D(cvar: np.ndarray, cdf: np.ndarray, decimal: int= 10) -> pd.DataFrame:
-    assert is_sorted(cvar), "values of cvar must be sorted"
+
+
+def CVaR2D(cvar: np.ndarray, cdf: np.ndarray, decimal: int = 10) -> pd.DataFrame:
+    assert bs.is_sorted(cvar), "values of cvar must be sorted"
     p = np.diff(cdf, prepend=0)
     X = np.round(np.diff(cdf * cvar, prepend=0) / p, decimal)
     d = distribution(X, p)
@@ -173,9 +162,9 @@ Return the (Lam)-th quantile of the distribution (d).
 
 
 def VaR(d: pd.DataFrame, Lam: np.ndarray, mode: int = 1) -> np.ndarray:
-    Lam = npfy(Lam)
+    Lam = bs.npfy(Lam)
     if mode == 0:  # iterative methods good for large Lam array
-        assert is_sorted(Lam), "Lambda array must be sorted"
+        assert bs.is_sorted(Lam), "Lambda array must be sorted"
         return iterVaRs(d, Lam)
     # search methods good for small Lam array
     return searchVaR(d, Lam)
@@ -191,7 +180,7 @@ Return the (lam)-CVaR of the distribution (d).
 def searchCVaR(d: pd.DataFrame, lam: np.ndarray) -> np.ndarray:
     i = np.minimum(np.searchsorted(d.cdf, lam), len(d.cdf.values)-1)
     return np.divide((d.XTP.values[i] + d.X.values[i] * (lam - d.cdf.values[i])), lam,
-                      out=np.full_like(lam,d.X.values[0]), where=lam!=0) 
+                     out=np.full_like(lam, d.X.values[0]), where=lam != 0)
 
 
 '''
@@ -230,11 +219,54 @@ Return an array of (Lam)-CVaR of the distribution (d).
 
 
 def CVaR(d: pd.DataFrame, Lam: np.ndarray, mode: int = 1) -> np.ndarray:
-    Lam = npfy(Lam)
+    Lam = bs.npfy(Lam)
 
     # iterative methods good for large Lam array
     if mode == 0:
-        assert is_sorted(Lam), "Lambda array must be sorted"
+        assert bs.is_sorted(Lam), "Lambda array must be sorted"
         return iterCVaRs(d, Lam)
     # search methods good for small Lam array
     return searchCVaR(d, Lam)
+
+
+'''
+E(X,prob): takes in random variables X and optional probability prob
+and returns the expected value of the distribution.
+'''
+
+
+def E(d: pd.DataFrame):
+    return rm.E(d.X.values, d.p.values)  # type: ignore
+
+
+'''
+min(X,prob): takes in random variables X and optional probability prob
+and returns the minimum of X that is possible to occur.
+'''
+
+
+def min(d: pd.DataFrame):
+    return rm.min(d.X.values, d.p.values)  # type: ignore
+
+
+'''
+ERM(X,Alpha,prob) = LSE(-alpha*X,b=prob)/-alpha
+LSE(a,b)  = np.log(np.sum(b*np.exp(a)))
+LSE trick = np.log(np.sum(b*np.exp(a-C)))+C # where #C = a.max()
+'''
+
+
+def ERM(d: pd.DataFrame, Alpha: np.ndarray):
+    return rm.ERM(d.X.values, Alpha, d.p.values)  # type: ignore
+
+
+'''
+EVaR(X,Lam,prob) = sup_a( ERM(X,a,prob) + log(lam)/a )
+                 = sup_a( (- LSE(-a*X,b=prob) + log(lam))/a )
+                 = sup_t( (- LSE(-X/t,b=prob) + log(lam))*t )
+                 = - inf_t( (LSE(-X/t,b=prob) - log(lam))*t )
+'''
+
+
+def EVaR(d: pd.DataFrame, Lam: np.ndarray):
+    return rm.EVaR(d.X.values, Lam, d.p.values)  # type: ignore

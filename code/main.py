@@ -10,6 +10,7 @@ from collections import namedtuple
 import numpy as np
 import pandas as pd
 
+import riskMeasure as rm
 from distDF import *
 
 X = np.array([1, 80, 1, 70, 2, 2, 50, 60])

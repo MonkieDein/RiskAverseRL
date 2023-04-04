@@ -2,6 +2,7 @@ import numpy as np
 from scipy.optimize import minimize_scalar
 from scipy.special import logsumexp as LSE
 
+import base as bs
 import distDF as ddf
 
 '''
@@ -17,21 +18,15 @@ def E(X: np.ndarray, prob: np.ndarray = np.empty(0)):
 
 
 '''
-check_size(X,prob): takes in random variables X and optional probability prob
-1. if no probability is given, uniform distribution is assumed.
-2. if X and prob are of different sizes, error is thrown.
-3. remove values with probability 0.
+min(X,prob): takes in random variables X and optional probability prob
+and returns the minimum of X that is possible to occur.
 '''
 
 
-def check_size(X: np.ndarray, prob: np.ndarray):
-    if prob.size == 0:
-        prob = np.full(X.shape, 1/X.size)
-    else:
-        assert X.size == prob.size, "X and prob must have the same size"
-        X = X[prob > 0]
-        prob = prob[prob > 0]
-    return X, prob
+def min(X: np.ndarray, prob: np.ndarray = np.empty(0)):
+    if prob.size > 0:
+        return (X[prob > 0]).min()
+    return X.min()
 
 
 '''
@@ -42,7 +37,7 @@ LSE trick = np.log(np.sum(b*np.exp(a-C)))+C # where #C = a.max()
 
 
 def ERM(X: np.ndarray, Alpha: np.ndarray, prob: np.ndarray = np.empty(0)):
-    X, prob = check_size(X, prob)
+    X, prob = bs.check_size(X, prob)
 
     def opt(alpha):
         return (LSE(-alpha*X, b=prob) / -alpha) if alpha > 0 else E(X, prob)
@@ -59,10 +54,10 @@ EVaR(X,Lam,prob) = sup_a( ERM(X,a,prob) + log(lam)/a )
 
 
 def EVaR(X: np.ndarray, Lam: np.ndarray, prob: np.ndarray = np.empty(0)):
-    Lam = ddf.npfy(Lam)
+    Lam = bs.npfy(Lam)
 
     mu = E(X, prob)
-    X, prob = check_size(X, prob)
+    X, prob = bs.check_size(X, prob)
     minima = X.min()
 
     def opt(lam):
@@ -85,7 +80,7 @@ mode != 0 # search methods good for small Lam array
 
 
 def VaR(X: np.ndarray, Lam: np.ndarray, prob: np.ndarray = np.empty(0), mode=1):
-    X, prob = check_size(X, prob)
+    X, prob = bs.check_size(X, prob)
     d = ddf.distribution(X, prob)
     return ddf.VaR(d, Lam, mode=mode)
 
@@ -100,8 +95,6 @@ mode != 0 # search methods good for small Lam array
 
 
 def CVaR(X: np.ndarray, Lam: np.ndarray, prob: np.ndarray = np.empty(0), mode=1):
-    X, prob = check_size(X, prob)
+    X, prob = bs.check_size(X, prob)
     d = ddf.distribution(X, prob)
     return ddf.CVaR(d, Lam, mode=mode)
-
-
