@@ -73,8 +73,8 @@ returns the distribution dataframe (d).
 
 def CVaR2D(cvar: np.ndarray, cdf: np.ndarray, decimal: int = 10) -> pd.DataFrame:
     assert bs.is_sorted(cvar), "values of cvar must be sorted"
-    p = np.diff(cdf, prepend=0)
-    X = np.round(np.diff(cdf * cvar, prepend=0) / p, decimal)
+    p = np.diff(cdf)
+    X = np.round(np.diff(cdf * cvar) / p, decimal)
     d = distribution(X, p)
     return d
 
@@ -180,12 +180,18 @@ Return the (lam)-CVaR of the distribution (d).
 
 def searchCVaR(d: pd.DataFrame, lam: np.ndarray) -> np.ndarray:
     i = np.minimum(np.searchsorted(d.cdf, lam), len(d.cdf.values) - 1)
-    return np.divide(
-        (d.XTP.values[i] + d.X.values[i] * (lam - d.cdf.values[i])),
-        lam,
-        out=np.full_like(lam, d.X.values[0]),
-        where=lam != 0,
+
+    return np.where(
+        i > 0,
+        np.divide((d.XTP.values[i] + d.X.values[i] * (lam - d.cdf.values[i])), lam),
+        d.X.values[0],
     )
+    # return np.divide(
+    #     (d.XTP.values[i] + d.X.values[i] * (lam - d.cdf.values[i])),
+    #     lam,
+    #     out=np.full_like(lam, d.X.values[0]),
+    #     where=lam != 0,
+    # )
 
 
 """
